@@ -516,13 +516,16 @@ class BaseTrainer:
 
         # Serialize ckpt to a byte buffer once (faster than repeated torch.save() calls)
         buffer = io.BytesIO()
+        # support multi-GPU save pt
+        base_model = self.model.module if hasattr(self.model, "module") else self.model
+        is_end2end = getattr(base_model, 'end2end', False)
         torch.save(
             {
                 "epoch": self.epoch,
                 "best_fitness": self.best_fitness,
                 "model": None,  # resume and final checkpoints derive from EMA
                 #jjh support save weight only model for yolov10
-                "ema": deepcopy(self.ema.ema).half().state_dict() if self.model.end2end else deepcopy(self.ema.ema).half(),
+                "ema": deepcopy(self.ema.ema).half().state_dict() if is_end2end else deepcopy(self.ema.ema).half(),
                 "updates": self.ema.updates,
                 "optimizer": convert_optimizer_state_dict_to_fp16(deepcopy(self.optimizer.state_dict())),
                 "train_args": vars(self.args),  # save as dict

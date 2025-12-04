@@ -23,7 +23,7 @@ def parse_opt():
     parser.add_argument('--imgsz', type=int, nargs='+', default=[640,640], help='height and width of the input image')
     parser.add_argument('--device', default='cpu', help='device to use for export')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version')
-    parser.add_argument('--ultralytics', action='store_true', help='whether the model is from ultralytics')
+    parser.add_argument('--ultralytics', action='store_true', help='whether the model is from ultralytics until now v5u v8 v10 v11 v12 v13')
     parser.add_argument('--simplify', action='store_false', help='whether to simplify onnx model using onnxsim')
     opt = parser.parse_args()
     return opt
