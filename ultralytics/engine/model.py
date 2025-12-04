@@ -809,7 +809,17 @@ class Model(nn.Module, PyTorchModelHubMixin, repo_url="https://github.com/ultral
         # Update model and cfg after training
         if RANK in {-1, 0}:
             ckpt = self.trainer.best if self.trainer.best.exists() else self.trainer.last
-            self.model, self.ckpt = attempt_load_one_weight(ckpt)
+            # support weight only best.pt load avoid attempt_load_one_weight functuion
+            try:
+                self.model, self.ckpt = attempt_load_one_weight(ckpt)
+            except (AttributeError, KeyError, RuntimeError, TypeError, AttributeError, Exception):
+                self.model = self.trainer.model
+                if hasattr(self.model, 'module'):
+                    self.model = self.model.module
+                self.ckpt = torch.load(ckpt, map_location='cpu')
+                csd = self.ckpt['model'] if isinstance(self.ckpt, dict) and 'model' in self.ckpt else self.ckpt
+                with torch.inference_mode():
+                    self.model.load_state_dict(csd, strict=False)
             self.overrides = self.model.args
             self.metrics = getattr(self.trainer.validator, "metrics", None)  # TODO: no metrics returned by DDP
         return self.metrics

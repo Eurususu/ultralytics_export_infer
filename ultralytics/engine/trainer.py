@@ -521,7 +521,8 @@ class BaseTrainer:
                 "epoch": self.epoch,
                 "best_fitness": self.best_fitness,
                 "model": None,  # resume and final checkpoints derive from EMA
-                "ema": deepcopy(self.ema.ema).half(),
+                #jjh support save weight only model for yolov10
+                "ema": deepcopy(self.ema.ema).half().state_dict() if self.model.end2end else deepcopy(self.ema.ema).half(),
                 "updates": self.ema.updates,
                 "optimizer": convert_optimizer_state_dict_to_fp16(deepcopy(self.optimizer.state_dict())),
                 "train_args": vars(self.args),  # save as dict
@@ -685,7 +686,19 @@ class BaseTrainer:
                     strip_optimizer(f, updates={k: ckpt[k]} if k in ckpt else None)
                     LOGGER.info(f"\nValidating {f}...")
                     self.validator.args.plots = self.args.plots
-                    self.metrics = self.validator(model=f)
+                    #jjh support weight only beat.pt final evalution, avoid attempt_load_one_weight functuion
+                    try:
+                        ckpt = torch.load(f, map_location='cpu')
+                        if isinstance(ckpt['model'], dict) and 'model' in ckpt:
+                            weights = ckpt['model']
+                            model_to_load = self.model.module if hasattr(self.model, 'module') else self.model
+                            model_to_load.load_state_dict(weights, strict=False)
+                            self.metrics = self.validator(model=model_to_load)
+                        else:
+                            self.metrics = self.validator(model=f)
+                    except Exception as e:
+                        LOGGER.warning(f"WARNING ⚠️ Final validation failed: {e}")
+                        self.metrics = {}
                     self.metrics.pop("fitness", None)
                     self.run_callbacks("on_fit_epoch_end")
 

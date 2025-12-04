@@ -749,8 +749,9 @@ class v10DetectLoss:
         self.one2one = v8DetectionLoss(model, tal_topk=1)
     
     def __call__(self, preds, batch):
-        one2many = preds["one2many"]
+        # jjh train and eval get different outputs
+        one2many = preds["one2many"] if isinstance(preds,dict) else preds[1]["one2many"]
         loss_one2many = self.one2many(one2many, batch)
-        one2one = preds["one2one"]
+        one2one = preds["one2one"] if isinstance(preds,dict) else preds[1]["one2one"]
         loss_one2one = self.one2one(one2one, batch)
         return loss_one2many[0] + loss_one2one[0], torch.cat((loss_one2many[1], loss_one2one[1]))

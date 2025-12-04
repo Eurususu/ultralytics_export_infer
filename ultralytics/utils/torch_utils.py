@@ -576,9 +576,15 @@ def strip_optimizer(f: Union[str, Path] = "best.pt", s: str = "", updates: dict 
         x["model"].args = dict(x["model"].args)  # convert from IterableSimpleNamespace to dict
     if hasattr(x["model"], "criterion"):
         x["model"].criterion = None  # strip loss criterion
-    x["model"].half()  # to FP16
-    for p in x["model"].parameters():
-        p.requires_grad = False
+    # jjh support weight only model to save
+    if isinstance(x["model"], nn.Module):
+        x["model"].half()  # to FP16
+        for p in x["model"].parameters():
+            p.requires_grad = False
+    else:
+        for p in x["model"].values():
+            if isinstance(p, torch.Tensor):
+                p.requires_grad = False
 
     # Update other keys
     args = {**DEFAULT_CFG_DICT, **x.get("train_args", {})}  # combine args

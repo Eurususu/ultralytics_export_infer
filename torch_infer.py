@@ -6,7 +6,8 @@ import torch.nn as nn
 
 def parse_args():
     args_parser = argparse.ArgumentParser()
-    args_parser.add_argument('--weights', type=str, default='weights/yolov10s.pt', help='weights path')
+    args_parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
+    args_parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file')
     args_parser.add_argument('--sourse', type=str, default='data/1.jpg', help='image/video path')
     args_parser.add_argument('--conf', type=float, default=0.25, help='confidence threshold')
     args_parser.add_argument('--iou', type=float, default=0.45, help='NMS IoU threshold')
@@ -19,13 +20,24 @@ def parse_args():
     args_parser.add_argument('--line_width', type=int, default=1, help='bounding box line width')
     args_parser.add_argument('--project', default='runs/detect', help='save results to project/name')
     args_parser.add_argument('--name', default='exp', help='save results to project/name')
+    args_parser.add_argument('--v10', action='store_true', help='use yolov10 model for inference')
     args = args_parser.parse_args()
     return args
 
 
 def run_infer(args):
-    if 'yolov10' in args.weights.lower():
-        model = YOLOv10(args.weights)
+    if args.v10:
+        assert args.yaml, '--yaml must be specified for yolov10 inference'
+        model = YOLOv10(args.yaml)
+        ckpt = torch.load(args.weights, map_location='cpu')
+        if isinstance(ckpt, dict) and 'model' in ckpt:
+            state_dict = ckpt['model']
+        else:
+            state_dict = ckpt
+        if not isinstance(state_dict, dict):
+            state_dict = state_dict.state_dict()
+        model.model.load_state_dict(state_dict, strict=True)
+        model.model.eval()
     else:
         model = YOLO(args.weights)
         model.fuse()

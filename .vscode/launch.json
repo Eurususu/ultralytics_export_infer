@@ -13,7 +13,8 @@
             "console": "integratedTerminal",
 
             // "args": ["--model", "/home/jia/yolov5_end2end_deploy/weights/yolov5s.onnx", "--image", "/home/jia/TensorRT-For-YOLO-Series/src/1.jpg"]
-            "args":["--engine", "/home/jia/yolov10s.engine", "--image", "data/1.jpg", "--ultralytics", "--v10"]
+            // "args":["--engine", "/home/jia/yolov10s.engine", "--image", "data/1.jpg", "--ultralytics", "--v10"]
+            "args": ["--save"]
         }
     ]
 }

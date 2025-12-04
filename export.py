@@ -7,11 +7,13 @@ from io import BytesIO
 from utils.events import LOGGER
 from utils.end2end import End2End
 import argparse
-from ultralytics import YOLO
+from ultralytics import YOLO, YOLOv10
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='weights/yolov10s.pt', help='weights path')
+    parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
+    parser.add_argument('--v10', action='store_true', help='whether the model is yolov10')
+    parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file for yolov10')
     parser.add_argument('--batch', type=int, default=1, help='batch size')
     parser.add_argument('--topk_all', type=int, default=100, help='max number of detections per image')
     parser.add_argument('--iou_thres', type=float, default=0.7, help='iou threshold for NMS')
@@ -30,10 +32,22 @@ def run_export(opt):
     device = torch.device(opt.device)
     LOGGER.info("Loading model...")
     # model = load_checkpoint(opt.weights,ultralytics=opt.ultralytics, map_location=device)
-    if opt.end2end and "yolov10" in opt.weights:
+    if opt.end2end and opt.v10:
         raise NotImplementedError("End2End export for YOLOv10 is not supported.")
     if opt.ultralytics:
-        model = YOLO(opt.weights).model
+        if opt.v10:
+            assert opt.yaml, '--yaml must be specified for yolov10 export'
+            model = YOLOv10(opt.yaml).model
+            ckpt = torch.load(opt.weights, map_location='cpu')
+            if isinstance(ckpt, dict) and 'model' in ckpt:
+                state_dict = ckpt['model']
+            else:
+                state_dict = ckpt
+            if not isinstance(state_dict, dict):
+                state_dict = state_dict.state_dict()
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = YOLO(opt.weights).model
         model = Wrapper_yolo(model)
     elif "yolov9" in  opt.weights:
         pass
