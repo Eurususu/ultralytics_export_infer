@@ -5,7 +5,7 @@ import onnx
 import onnx_graphsurgeon as gs
 from io import BytesIO
 from utils.events import LOGGER
-from utils.end2end import End2End
+from utils.end2end import End2End, Ultralytics_TRT10_Wrapper
 import argparse
 from ultralytics import YOLO, YOLOv10
 
@@ -24,7 +24,7 @@ def parse_opt():
     parser.add_argument('--device', default='cpu', help='device to use for export')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version')
     parser.add_argument('--ultralytics', action='store_true', help='whether the model is from ultralytics until now v5u v8 v10 v11 v12 v13')
-    parser.add_argument('--simplify', action='store_false', help='whether to simplify onnx model using onnxsim')
+    parser.add_argument('--simplify', action='store_true', help='whether to simplify onnx model using onnxsim')
     opt = parser.parse_args()
     return opt
 
@@ -63,31 +63,23 @@ def run_export(opt):
         opt.imgsz = [opt.imgsz[0], opt.imgsz[0]]
     img = torch.randn(opt.batch, 3, opt.imgsz[0], opt.imgsz[1]).to(device)
     dynamic_axes = None
-    if opt.dynamic_batch:
-        dynamic_axes = {
-            'images': {
-                0: 'batch',
-            }, }
-        if opt.end2end:
-            output_axes = {
-                'num_dets': {0: 'batch'},
-                'det_boxes': {0: 'batch'},
-                'det_scores': {0: 'batch'},
-                'det_classes': {0: 'batch'},
-            }
-        else:
-            output_axes = {
-                'outputs': {0: 'batch'},
-            }
-        dynamic_axes.update(output_axes)
     if opt.end2end:
         LOGGER.info("Adding End2End (NMS) layers...")
-        model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,
-                        device=device, ort=False, with_preprocess=False)
+        # model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,
+        #                 device=device, ort=False, with_preprocess=False)
+        model = Ultralytics_TRT10_Wrapper(model, opt.topk_all, opt.iou_thres, opt.conf_thres)
+        if opt.dynamic_batch:
+            current_dynamic_axes = {
+                'images': {0: 'batch'},
+                'detections': {0: 'num_dets'}  # 输出的第一维是动态的(检测框数量)
+            }
+        else:
+            current_dynamic_axes = {'detections': {0: 'num_dets'}}
+        dynamic_axes = current_dynamic_axes
     try:
         LOGGER.info('\nStarting to export ONNX...')
         export_file = opt.weights.replace('.pt', '.onnx')  # filename
-        output_names = ['num_dets', 'det_boxes', 'det_scores', 'det_classes'] if opt.end2end else ['outputs']
+        output_names = ['detections'] if opt.end2end else ['outputs']
         with BytesIO() as f:
             torch.onnx.export(model, img, f, verbose=False, opset_version=opt.opset,
                             training=torch.onnx.TrainingMode.EVAL,
@@ -102,20 +94,6 @@ def run_export(opt):
             onnx.checker.check_model(onnx_model)  # check onnx model
             LOGGER.info("Optimizing graph with onnx-graphsurgeon...")
             graph = gs.import_onnx(onnx_model)
-            if opt.end2end:
-                LOGGER.info("Manually fixing EfficientNMS_TRT output shapes...")
-                for node in graph.nodes:
-                    if node.op == 'EfficientNMS_TRT':
-                        batch_dim = 'batch' if opt.dynamic_batch else opt.batch
-                        max_dets = opt.topk_all
-                        node.outputs[0].shape = [batch_dim, 1]
-                        node.outputs[1].shape = [batch_dim, max_dets, 4]
-                        node.outputs[2].shape = [batch_dim, max_dets]
-                        node.outputs[3].shape = [batch_dim, max_dets]
-
-                        import numpy as np
-                        node.outputs[0].dtype = np.int32
-                        node.outputs[3].dtype = np.int32
             graph.cleanup().toposort()  #从图形中删除未使用的节点和张量，并对图形进行拓扑排序
             # Shape Estimation
             estimated_graph = None

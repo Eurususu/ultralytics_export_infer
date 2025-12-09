@@ -170,7 +170,7 @@ class ONNX_TRT8(nn.Module):
     
 class ONNX_TRT8_U(nn.Module):
     '''onnx moudule with TensorRT NMS operation for ultralytics models'''
-    def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, device=None,v9=False):
+    def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, device=None):
         super().__init__()
         self.device = device if device else torch.device('cpu')
         self.background_class = -1
@@ -180,16 +180,13 @@ class ONNX_TRT8_U(nn.Module):
         self.plugin_version = '1'
         self.score_activation = 0
         self.score_threshold = score_thres
-        self.v9 = v9
 
     
     def forward(self, x):
         # 1. 处理输入维度
         # Ultralytics 输出可能是 list，也可能是 tensor。如果是 list 取第一个
-        if isinstance(x, list) and not self.v9:
+        if isinstance(x, list):
             x = x[0]
-        elif isinstance(x, list) and self.v9:
-            x = x[1]
         # 此时 x 的形状是 (Batch, 4+C, Anchors) -> (1, 84, 8400)
         # 我们需要把它变成 (Batch, Anchors, 4+C) -> (1, 8400, 84) 以便后续切片
         x = x.permute(0, 2, 1)
@@ -248,3 +245,127 @@ class End2End(nn.Module):
             x = x
         x = self.end2end(x)
         return x
+
+class TRT10_NMS_Op(torch.autograd.Function):
+    """
+    对应 TensorRT INMSLayer 的 ONNX 导出实现。
+    生成标准的 onnx::NonMaxSuppression 节点。
+    """
+    @staticmethod
+    def forward(ctx, boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold):
+        """
+        PyTorch 前向推理时的逻辑 (Dummy 实现，仅为了通过 shape 检查)
+        TRT 部署时不会用到这里，而是用 symbolic 定义的算子。
+        """
+        # 假设这里只是简单返回一个空的索引，实际推理中 torch 无法直接模拟 TRT 的 NMS 行为
+        # 返回形状: [N, 3] -> (batch_index, class_index, box_index)
+        return torch.zeros((1, 3), dtype=torch.int64)
+
+    @staticmethod
+    def symbolic(g, boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold):
+        """
+        定义 ONNX 算子，直接映射到 INMSLayer 的输入要求。
+        """
+        # 1. 将 Python 数值转换为 ONNX 的 Constant Tensor
+        # INMSLayer Doc: MaxOutputBoxesPerClass is a scalar (0D tensor) of type int32
+        max_output_boxes_t = g.op("Constant", value_t=torch.tensor([max_output_boxes_per_class], dtype=torch.int64))
+        # INMSLayer Doc: IoUThreshold is a scalar float32
+        iou_threshold_t = g.op("Constant", value_t=torch.tensor([iou_threshold], dtype=torch.float32))
+        # INMSLayer Doc: ScoreThreshold is a scalar float32
+        score_threshold_t = g.op("Constant", value_t=torch.tensor([score_threshold], dtype=torch.float32))
+
+        # 2. 生成 Standard ONNX NonMaxSuppression 节点
+        # 官方文档对应关系:
+        # Boxes -> input[0]
+        # Scores -> input[1]
+        # MaxOutputBoxesPerClass -> input[2]
+        # IoUThreshold -> input[3]
+        # ScoreThreshold -> input[4]
+        return g.op("NonMaxSuppression",
+                    boxes,
+                    scores,
+                    max_output_boxes_t,
+                    iou_threshold_t,
+                    score_threshold_t,
+                    center_point_box_i=0)
+    
+
+def apply_trt10_nms(boxes, scores, max_output_boxes, iou_thres, conf_thres):
+    """
+    Args:
+        boxes: [Batch, N, 4] (x1y1x2y2)
+        scores: [Batch, C, N] (注意维度顺序!)
+    """
+    # 1. 执行 NMS 算子，得到索引 [M, 3] -> (batch_idx, class_idx, box_idx)
+    indices = TRT10_NMS_Op.apply(boxes, scores, max_output_boxes, iou_thres, conf_thres)
+    
+    # 2. 解析索引 (Gather)
+    batch_ids = indices[:, 0]
+    class_ids = indices[:, 1]
+    box_ids   = indices[:, 2]
+
+    # 3. 提取最终结果
+    det_boxes = boxes[batch_ids, box_ids]      # [M, 4]
+    # score 需要重新转置回去取值，或者直接用 batch/box/class 索引取
+    # scores 是 [B, C, N]，这里有点绕，我们用原始形状取值更稳妥
+    det_scores = scores[batch_ids, class_ids, box_ids] # [M]
+    
+    det_batch_ids = batch_ids.to(torch.float32)
+    det_classes = class_ids.to(torch.float32)
+    
+    # 返回 [M, 7] 格式: batch_id, x1, y1, x2, y2, score, class
+    # 这样 C++ 处理起来最方便，只需要读这一个 output tensor
+    return torch.stack([det_batch_ids, det_boxes[:, 0], det_boxes[:, 1], det_boxes[:, 2], det_boxes[:, 3], det_scores, det_classes], dim=1)
+
+
+class Ultralytics_TRT10_Wrapper(nn.Module):
+    def __init__(self, model, max_det=100, iou_thres=0.45, conf_thres=0.25):
+        super().__init__()
+        self.model = model
+        self.max_det = max_det
+        self.iou_thres = iou_thres
+        self.conf_thres = conf_thres
+
+    def forward(self, x):
+        # 1. 处理输入维度
+        # Ultralytics 输出可能是 list，也可能是 tensor。如果是 list 取第一个
+        img_h, img_w = x.shape[2], x.shape[3]
+        x = self.model(x)
+        if isinstance(x, list):
+            x = x[0]
+        # 此时 x 的形状是 (Batch, 4+C, Anchors) -> (1, 84, 8400)
+        # 我们需要把它变成 (Batch, Anchors, 4+C) -> (1, 8400, 84) 以便后续切片
+        x = x.permute(0, 2, 1)
+        # 2. 拆分 Box 和 Score
+        # 此时 x 是 (Batch, 8400, 84)
+        bboxes_cxcywh = x[:, :, :4]  # 前4列是 cx, cy, w, h
+        scores = x[:, :, 4:]       # 后80列是类别概率
+        # 3. 坐标转换: cx,cy,w,h -> x1,y1,x2,y2
+        # EfficientNMS 最好 x1y1x2y2，这样输出也是 x1y1x2y2，方便画图
+        bboxes_xyxy = torch.zeros_like(bboxes_cxcywh)
+        dw = bboxes_cxcywh[:, :, 2] / 2.0
+        dh = bboxes_cxcywh[:, :, 3] / 2.0
+        
+        bboxes_xyxy[:, :, 0] = bboxes_cxcywh[:, :, 0] - dw # x1
+        bboxes_xyxy[:, :, 1] = bboxes_cxcywh[:, :, 1] - dh # y1
+        bboxes_xyxy[:, :, 2] = bboxes_cxcywh[:, :, 0] + dw # x2
+        bboxes_xyxy[:, :, 3] = bboxes_cxcywh[:, :, 1] + dh # y2
+
+        bboxes_xyxy[:, :, 0].clamp_(0, img_w)
+        bboxes_xyxy[:, :, 1].clamp_(0, img_h)
+        bboxes_xyxy[:, :, 2].clamp_(0, img_w)
+        bboxes_xyxy[:, :, 3].clamp_(0, img_h)
+        # 4. 格式调整适配 NMS
+        # Standard NMS 要求 scores 格式为 [Batch, Classes, Boxes]
+        final_scores_transposed = scores.transpose(1, 2)
+
+        # 6. 调用 TRT10 NMS
+        # 输出形状 [M, 7]: batch_id, x1, y1, x2, y2, score, class
+        nms_out = apply_trt10_nms(
+            bboxes_xyxy, 
+            final_scores_transposed, 
+            self.max_det, 
+            self.iou_thres, 
+            self.conf_thres
+        )
+        return nms_out
