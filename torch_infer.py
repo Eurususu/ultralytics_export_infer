@@ -8,7 +8,7 @@ def parse_args():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
     args_parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file')
-    args_parser.add_argument('--sourse', type=str, default='data/1.jpg', help='image/video path')
+    args_parser.add_argument('--source', type=str, default='data/1.jpg', help='image/video path')
     args_parser.add_argument('--conf', type=float, default=0.25, help='confidence threshold')
     args_parser.add_argument('--iou', type=float, default=0.45, help='NMS IoU threshold')
     args_parser.add_argument('--img_size', type=int, nargs='+', default=[640,640], help='height and width of the input image')

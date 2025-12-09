@@ -11,7 +11,7 @@ from ultralytics import YOLO, YOLOv10
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
+    parser.add_argument('--weights', type=str, default='', help='weights path')
     parser.add_argument('--v10', action='store_true', help='whether the model is yolov10')
     parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file for yolov10')
     parser.add_argument('--batch', type=int, default=1, help='batch size')

@@ -20,7 +20,7 @@ if __name__ == '__main__':
     parser.add_argument("--end2end", default=False, action="store_true",
                         help="use end2end engine")
     parser.add_argument('--ultralytics', default=False, action="store_true",
-                        help='whether the model is from ultralytics')
+                        help='whether the model is from ultralytics, only for not end2end model')
     parser.add_argument('--v10', action="store_true", help='whether the model is yolov10')
 
     args = parser.parse_args()
