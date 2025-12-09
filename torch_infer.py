@@ -47,7 +47,7 @@ def run_infer(args):
         model.to('cuda' if torch.cuda.is_available() else 'cpu')
     
     results = model.predict(
-        source=args.sourse,
+        source=args.source,
         conf=args.conf,
         iou=args.iou,
         classes=args.classes,

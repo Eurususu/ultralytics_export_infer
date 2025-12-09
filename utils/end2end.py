@@ -226,17 +226,14 @@ class ONNX_TRT8_U(nn.Module):
 
 class End2End(nn.Module):
     '''export onnx or tensorrt model with NMS operation.'''
-    def __init__(self, model, ultralytics=False, max_obj=100, iou_thres=0.45, score_thres=0.25, device=None, ort=False, with_preprocess=False, v9=False):
+    def __init__(self, model, ultralytics=False, max_obj=100, iou_thres=0.45, score_thres=0.25, device=None, ort=False, with_preprocess=False):
         super().__init__()
         device = device if device else torch.device('cpu')
         self.with_preprocess = with_preprocess
         self.model = model.to(device)
         ORT = ONNX_TRT8_U if ultralytics else ONNX_TRT8
         self.patch_model = ONNX_ORT if ort else ORT
-        if v9:
-            self.end2end = self.patch_model(max_obj, iou_thres, score_thres, device,v9=True)
-        else:
-            self.end2end = self.patch_model(max_obj, iou_thres, score_thres, device)
+        self.end2end = self.patch_model(max_obj, iou_thres, score_thres, device)
         self.end2end.eval()
 
     def forward(self, x):

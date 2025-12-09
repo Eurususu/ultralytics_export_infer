@@ -38,13 +38,24 @@ def parse_args():
     parser.add_argument('--profile', action='store_true', help='profile model speed while training')
     parser.add_argument('--resume', action='store_true', help='resume training from last.pt')
     parser.add_argument('--plots', action='store_true', help='save plots of training metrics')
+    parser.add_argument('--v10', action='store_true', help='whether the model is yolov10')
+    parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file for yolov10')
     args = parser.parse_args()
     return args
 
 
 def run_train(args):
-    if 'yolov10' in args.model.lower():
-        model = YOLOv10(args.model)
+    if args.v10:
+        assert args.yaml, '--yaml must be specified for yolov10 export'
+        model = YOLOv10(args.yaml).model
+        ckpt = torch.load(args.weights, map_location='cpu')
+        if isinstance(ckpt, dict) and 'model' in ckpt:
+            state_dict = ckpt['model']
+        else:
+            state_dict = ckpt
+        if not isinstance(state_dict, dict):
+            state_dict = state_dict.state_dict()
+        model.load_state_dict(state_dict, strict=True)
     else:
         model = YOLO(args.model)
 

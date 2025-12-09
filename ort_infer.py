@@ -55,15 +55,15 @@ class YOLO_ONNX_Runner:
         image_data = image_data.astype(np.float32) / 255.0 # 0-255 -> 0.0-1.0
         return image_data, scale, (dw, dh)
 
-    def postprocess(self, output, scale, pad, v8):
+    def postprocess(self, output, scale, pad):
         """
         后处理：解析 YOLO 输出, NMS, 坐标还原
         YOLOv8 输出形状通常为: [1, 4 + num_classes, num_anchors]
         例如: [1, 84, 8400] -> 4个坐标 + 80个类别
         """
-        if v8:
+        # if v8:
             # 1. Transpose: [1, 84, 8400] -> [1, 8400, 84]
-            output = np.transpose(output, (0, 2, 1))
+        output = np.transpose(output, (0, 2, 1))
         
         # 去掉 Batch 维度 -> [8400, 84]
         prediction = output[0]
@@ -71,11 +71,11 @@ class YOLO_ONNX_Runner:
         # 2. 拆分 Box 和 Scores
         # cx, cy, w, h
         boxes = prediction[:, 0:4]
-        if v8:
+        # if v8:
             # classes scores
-            scores = prediction[:, 4:]
-        else:
-            scores = prediction[:, 4:5] * prediction[:, 5:]
+        scores = prediction[:, 4:]
+        # else:
+        #     scores = prediction[:, 4:5] * prediction[:, 5:]
         
         # 获取最大置信度的类别和分数
         class_ids = np.argmax(scores, axis=1)
@@ -143,7 +143,7 @@ class YOLO_ONNX_Runner:
         return final_boxes, final_scores, final_classes
 
     
-    def run(self, image_path, v8=False, v10=False):
+    def run(self, image_path):
         # 读取图片
         img = cv2.imread(image_path)
         if img is None:
@@ -157,7 +157,7 @@ class YOLO_ONNX_Runner:
         outputs = self.session.run([self.output_name], {self.input_name: img_data})
        
         # 后处理
-        det_boxes, det_scores, det_classes = self.postprocess(outputs[0], scale, pad, v8)
+        det_boxes, det_scores, det_classes = self.postprocess(outputs[0], scale, pad)
         
         # 绘制结果
         print(f"检测到 {len(det_boxes)} 个目标")
@@ -207,4 +207,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     runner = YOLO_ONNX_Runner(args.model)
-    runner.run(args.image, v8=True)
+    runner.run(args.image)

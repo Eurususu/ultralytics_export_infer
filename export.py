@@ -80,14 +80,10 @@ def run_export(opt):
                 'outputs': {0: 'batch'},
             }
         dynamic_axes.update(output_axes)
-    if opt.end2end and not "yolov9" in opt.weights:
+    if opt.end2end:
         LOGGER.info("Adding End2End (NMS) layers...")
         model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,
                         device=device, ort=False, with_preprocess=False)
-    elif opt.end2end and "yolov9" in  opt.weights:
-        LOGGER.info("Adding End2End (NMS) layers for YOLOv9...")
-        model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,
-                        device=device, ort=False, with_preprocess=False, v9=True)
     try:
         LOGGER.info('\nStarting to export ONNX...')
         export_file = opt.weights.replace('.pt', '.onnx')  # filename
@@ -106,6 +102,20 @@ def run_export(opt):
             onnx.checker.check_model(onnx_model)  # check onnx model
             LOGGER.info("Optimizing graph with onnx-graphsurgeon...")
             graph = gs.import_onnx(onnx_model)
+            if opt.end2end:
+                LOGGER.info("Manually fixing EfficientNMS_TRT output shapes...")
+                for node in graph.nodes:
+                    if node.op == 'EfficientNMS_TRT':
+                        batch_dim = 'batch' if opt.dynamic_batch else opt.batch
+                        max_dets = opt.topk_all
+                        node.outputs[0].shape = [batch_dim, 1]
+                        node.outputs[1].shape = [batch_dim, max_dets, 4]
+                        node.outputs[2].shape = [batch_dim, max_dets]
+                        node.outputs[3].shape = [batch_dim, max_dets]
+
+                        import numpy as np
+                        node.outputs[0].dtype = np.int32
+                        node.outputs[3].dtype = np.int32
             graph.cleanup().toposort()  #从图形中删除未使用的节点和张量，并对图形进行拓扑排序
             # Shape Estimation
             estimated_graph = None
