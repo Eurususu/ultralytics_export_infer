@@ -157,7 +157,24 @@ class BaseEngine(object):
         # img, ratio = preproc(origin_img, self.imgsz, self.mean, self.std)
         img, ratio, dwdh = letterbox(origin_img, self.imgsz)
         data = self.infer(img)
-        if v10:
+        if end2end:
+            num, final_boxes, final_scores, final_cls_inds  = data
+            # final_boxes, final_scores, final_cls_inds  = data
+            final_boxes = np.reshape(final_boxes, (-1, 4))
+            # 还原坐标：先减 padding，再除以 ratio
+            if dwdh is not None:
+                dw, dh = dwdh
+                final_boxes[:, 0] -= dw
+                final_boxes[:, 1] -= dh
+                final_boxes[:, 2] -= dw
+                final_boxes[:, 3] -= dh
+            final_boxes /= ratio
+            final_scores = np.reshape(final_scores, (-1, 1))
+            final_cls_inds = np.reshape(final_cls_inds, (-1, 1))
+            # 截取有效框
+            valid_count = int(num[0])
+            dets = np.concatenate([np.array(final_boxes)[:valid_count], np.array(final_scores)[:valid_count], np.array(final_cls_inds)[:valid_count]], axis=-1)
+        elif v10:
             if isinstance(data, list):
                 data = data[0]
             data = data[0]
@@ -170,32 +187,14 @@ class BaseEngine(object):
             data[:,:4] /= ratio
             dets = data
         else:
-            if end2end:
-                num, final_boxes, final_scores, final_cls_inds  = data
-                # final_boxes, final_scores, final_cls_inds  = data
-                final_boxes = np.reshape(final_boxes, (-1, 4))
-                # 还原坐标：先减 padding，再除以 ratio
-                if dwdh is not None:
-                    dw, dh = dwdh
-                    final_boxes[:, 0] -= dw
-                    final_boxes[:, 1] -= dh
-                    final_boxes[:, 2] -= dw
-                    final_boxes[:, 3] -= dh
-                final_boxes /= ratio
-                final_scores = np.reshape(final_scores, (-1, 1))
-                final_cls_inds = np.reshape(final_cls_inds, (-1, 1))
-                # 截取有效框
-                valid_count = int(num[0])
-                dets = np.concatenate([np.array(final_boxes)[:valid_count], np.array(final_scores)[:valid_count], np.array(final_cls_inds)[:valid_count]], axis=-1)
+            if ultralytics:
+                if isinstance(data, list):
+                    data = data[0]
+                predictions = data[0]
+                predictions = predictions.transpose()
             else:
-                if ultralytics:
-                    if isinstance(data, list):
-                        data = data[0]
-                    predictions = data[0]
-                    predictions = predictions.transpose()
-                else:
-                    predictions = np.reshape(data, (1, -1, int(5+self.n_classes)))[0]
-                dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=ultralytics)
+                predictions = np.reshape(data, (1, -1, int(5+self.n_classes)))[0]
+            dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=ultralytics)
 
         if dets is not None:
             final_boxes, final_scores, final_cls_inds = dets[:,

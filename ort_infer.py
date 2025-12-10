@@ -5,9 +5,10 @@ import argparse
 
 
 class YOLO_ONNX_Runner:
-    def __init__(self, model_path, confidence_thres=0.4, iou_thres=0.7):
+    def __init__(self, model_path, confidence_thres=0.4, iou_thres=0.7, num_classes=80):
         self.conf_thres = confidence_thres
         self.iou_thres = iou_thres
+        self.num_classes = num_classes
 
         # 优先使用 CUDA, 其次 CPU
         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
@@ -55,7 +56,7 @@ class YOLO_ONNX_Runner:
         image_data = image_data.astype(np.float32) / 255.0 # 0-255 -> 0.0-1.0
         return image_data, scale, (dw, dh)
 
-    def postprocess(self, output, scale, pad):
+    def postprocess(self, output, scale, pad, ultralytics):
         """
         后处理：解析 YOLO 输出, NMS, 坐标还原
         YOLOv8 输出形状通常为: [1, 4 + num_classes, num_anchors]
@@ -63,7 +64,11 @@ class YOLO_ONNX_Runner:
         """
         # if v8:
             # 1. Transpose: [1, 84, 8400] -> [1, 8400, 84]
-        output = np.transpose(output, (0, 2, 1))
+        if ultralytics:
+            output = np.transpose(output, (0, 2, 1))
+        else:
+            output = np.reshape(output, (1, -1, 5 + self.num_classes))
+
         
         # 去掉 Batch 维度 -> [8400, 84]
         prediction = output[0]
@@ -73,9 +78,10 @@ class YOLO_ONNX_Runner:
         boxes = prediction[:, 0:4]
         # if v8:
             # classes scores
-        scores = prediction[:, 4:]
-        # else:
-        #     scores = prediction[:, 4:5] * prediction[:, 5:]
+        if ultralytics:
+            scores = prediction[:, 4:]
+        else:
+            scores = prediction[:, 4:5] * prediction[:, 5:]
         
         # 获取最大置信度的类别和分数
         class_ids = np.argmax(scores, axis=1)
@@ -140,14 +146,14 @@ class YOLO_ONNX_Runner:
                 final_scores.append(max_scores[i])
                 final_classes.append(class_ids[i])
                 
-        return final_boxes, final_scores, final_classes
+        return np.array(final_boxes), np.array(final_scores), np.array(final_classes)
 
     
-    def run(self, image_path):
+    def run(self, args):
         # 读取图片
-        img = cv2.imread(image_path)
+        img = cv2.imread(args.image)
         if img is None:
-            print(f"无法读取图片: {image_path}")
+            print(f"无法读取图片: {args.image}")
             return
 
         # 预处理
@@ -157,13 +163,33 @@ class YOLO_ONNX_Runner:
         outputs = self.session.run([self.output_name], {self.input_name: img_data})
        
         # 后处理
-        det_boxes, det_scores, det_classes = self.postprocess(outputs[0], scale, pad)
+        if args.end2end:
+            if isinstance(outputs, list):
+                outputs = outputs[0]
+            det_boxes = outputs[:,1:5]
+            det_scores = outputs[:, 5]
+            det_classes = outputs[:, 6]
+        elif args.v10:
+            if isinstance(outputs, list):
+                outputs = outputs[0]
+            outputs = outputs[0]
+            scores = outputs[:, 4]
+            mask = scores > self.conf_thres
+            outputs = outputs[mask]
+            if len(outputs) == 0:
+                return
+            det_boxes = outputs[:,:4]
+            det_scores = outputs[:, 4]
+            det_classes = outputs[:, 5]
+        else:   
+            det_boxes, det_scores, det_classes = self.postprocess(outputs[0], scale, pad, args.ultralytics)
+
         
         # 绘制结果
         print(f"检测到 {len(det_boxes)} 个目标")
-        self.draw_results(img, det_boxes, det_scores, det_classes)
+        self.draw_results(img, det_boxes, det_scores, det_classes, scale, pad)
     
-    def draw_results(self, img, boxes, scores, classes):
+    def draw_results(self, img, boxes, scores, classes, scale, pad):
         # COCO 类别 (仅作示例，如果是自定义数据集需修改)
         coco_names = [
             'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
@@ -176,12 +202,21 @@ class YOLO_ONNX_Runner:
             'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
             'hair drier', 'toothbrush'
         ]
-
+        # coco_names = ['person','car', 'bicycle']
+        h, w = img.shape[:2]
+        boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad[0]) / scale
+        boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad[1]) / scale
+        boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, w)
+        boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, h)
+        boxes = np.round(boxes).astype(int)
+        classes = classes.astype(int)
         for box, score, cls_id in zip(boxes, scores, classes):
             x1, y1, x2, y2 = box
             
             # 随机颜色
-            color = (0, 255, 0)
+            rng = np.random.RandomState(cls_id)
+            color = tuple(rng.randint(0, 255, size=3).tolist())
+            color = (int(color[0]), int(color[1]), int(color[2]))
             
             # 画框
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
@@ -202,9 +237,13 @@ class YOLO_ONNX_Runner:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default='weights/yolo11n.onnx', help="Path to ONNX model")
+    parser.add_argument("--model", type=str, default='weights/yolov7-tiny.onnx', help="Path to ONNX model")
     parser.add_argument("--image", type=str, default='data/1.jpg', help="Path to input image")
+    parser.add_argument("--end2end", action="store_true", help="Whether to use end2end model")
+    parser.add_argument("--v10", action="store_true", help="Whether to use YOLOv10 model")
+    parser.add_argument("--ultralytics", action="store_true", help="Whether to use Ultralytics model include yolov5u,yolov8,yolov10,yolo11,yolov12,yolov13")
     args = parser.parse_args()
-
+    if args.end2end and args.v10:
+        raise NotImplementedError("YOLOv10 is already End2End.")
     runner = YOLO_ONNX_Runner(args.model)
-    runner.run(args.image)
+    runner.run(args)
