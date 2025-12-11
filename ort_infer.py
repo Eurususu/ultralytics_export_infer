@@ -127,20 +127,20 @@ class YOLO_ONNX_Runner:
             for i in indices:
                 box = nms_boxes[i] # x1, y1, x2, y2
                 
-                # 移除 Padding
-                box[0] -= dw
-                box[1] -= dh
-                box[2] -= dw
-                box[3] -= dh
+                # # 移除 Padding
+                # box[0] -= dw
+                # box[1] -= dh
+                # box[2] -= dw
+                # box[3] -= dh
                 
-                # 缩放回原图
-                box /= scale
+                # # 缩放回原图
+                # box /= scale
                 
-                # 边界截断
-                box[0] = max(0, box[0])
-                box[1] = max(0, box[1])
-                box[2] = min(self.img_w, box[2])
-                box[3] = min(self.img_h, box[3])
+                # # 边界截断
+                # box[0] = max(0, box[0])
+                # box[1] = max(0, box[1])
+                # box[2] = min(self.img_w, box[2])
+                # box[3] = min(self.img_h, box[3])
                 
                 final_boxes.append(box.astype(int))
                 final_scores.append(max_scores[i])
@@ -237,7 +237,7 @@ class YOLO_ONNX_Runner:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default='weights/yolov7-tiny.onnx', help="Path to ONNX model")
+    parser.add_argument("--model", type=str, default='weights/yolo11n.onnx', help="Path to ONNX model")
     parser.add_argument("--image", type=str, default='data/1.jpg', help="Path to input image")
     parser.add_argument("--end2end", action="store_true", help="Whether to use end2end model")
     parser.add_argument("--v10", action="store_true", help="Whether to use YOLOv10 model")

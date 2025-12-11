@@ -8,6 +8,7 @@ from utils.events import LOGGER
 from utils.end2end import End2End, Ultralytics_TRT10_Wrapper
 import argparse
 from ultralytics import YOLO, YOLOv10
+from ultralytics.nn.modules.head import v10Detect, Detect
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -44,8 +45,14 @@ def run_export(opt):
         if not isinstance(state_dict, dict):
             state_dict = state_dict.state_dict()
         model.load_state_dict(state_dict, strict=True)
+        for m in model.modules():
+            if isinstance(m, v10Detect):
+               m.export = True 
     else:
         model = YOLO(opt.weights).model
+        for m in model.modules():
+            if isinstance(m, Detect):
+               m.export = True 
     model = Wrapper_yolo(model)
     model = model.to(device)
     model.eval()
