@@ -23,7 +23,6 @@ def parse_opt():
     parser.add_argument('--imgsz', type=int, nargs='+', default=[640,640], help='height and width of the input image')
     parser.add_argument('--device', default='cpu', help='device to use for export')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version')
-    parser.add_argument('--ultralytics', action='store_true', help='whether the model is from ultralytics until now v5u v8 v10 v11 v12 v13')
     parser.add_argument('--simplify', action='store_true', help='whether to simplify onnx model using onnxsim')
     opt = parser.parse_args()
     return opt
@@ -34,35 +33,35 @@ def run_export(opt):
     # model = load_checkpoint(opt.weights,ultralytics=opt.ultralytics, map_location=device)
     if opt.end2end and opt.v10:
         raise NotImplementedError("End2End export for YOLOv10 is not supported.")
-    if opt.ultralytics:
-        if opt.v10:
-            assert opt.yaml, '--yaml must be specified for yolov10 export'
-            model = YOLOv10(opt.yaml).model
-            ckpt = torch.load(opt.weights, map_location='cpu')
-            if isinstance(ckpt, dict) and 'model' in ckpt:
-                state_dict = ckpt['model']
-            else:
-                state_dict = ckpt
-            if not isinstance(state_dict, dict):
-                state_dict = state_dict.state_dict()
-            model.load_state_dict(state_dict, strict=True)
+    if opt.v10:
+        assert opt.yaml, '--yaml must be specified for yolov10 export'
+        model = YOLOv10(opt.yaml).model
+        ckpt = torch.load(opt.weights, map_location='cpu')
+        if isinstance(ckpt, dict) and 'model' in ckpt:
+            state_dict = ckpt['model']
         else:
-            model = YOLO(opt.weights).model
-        model = Wrapper_yolo(model)
-    elif "yolov9" in  opt.weights:
-        pass
-    elif "yolov7" in opt.weights:
-        pass
-    elif "yolov6" in opt.weights:
-        pass
+            state_dict = ckpt
+        if not isinstance(state_dict, dict):
+            state_dict = state_dict.state_dict()
+        model.load_state_dict(state_dict, strict=True)
     else:
-        raise NotImplementedError("Input model are supported now.")
+        model = YOLO(opt.weights).model
+    model = Wrapper_yolo(model)
     model = model.to(device)
     model.eval()
     if len(opt.imgsz) == 1:
         opt.imgsz = [opt.imgsz[0], opt.imgsz[0]]
     img = torch.randn(opt.batch, 3, opt.imgsz[0], opt.imgsz[1]).to(device)
     dynamic_axes = None
+    if opt.dynamic_batch:
+        dynamic_axes = {
+            'images': {
+                0: 'batch',
+            }, }
+        output_axes = {
+            'outputs': {0: 'batch'},
+        }
+        dynamic_axes.update(output_axes)
     if opt.end2end:
         LOGGER.info("Adding End2End (NMS) layers...")
         # model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,

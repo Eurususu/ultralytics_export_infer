@@ -32,7 +32,7 @@ if __name__ == '__main__':
     img_path = args.image
     video = args.video
     if img_path:
-      origin_img = pred.inference(img_path, conf=0.1, end2end=args.end2end,ultralytics=args.ultralytics, v10=args.v10)
+      origin_img = pred.inference(img_path, conf=0.25, end2end=args.end2end,ultralytics=args.ultralytics, v10=args.v10)
 
       cv2.imwrite("%s" %args.output , origin_img)
     if video:

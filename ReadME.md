@@ -1,20 +1,20 @@
 ## tag v1.0
 ### export
 yolo11n 的动态batch加end2end导出\
-`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --dynamic_batch --end2end --ultralytics --simplify`
+`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --dynamic_batch --end2end --simplify`
 ###
 yolo11n 的静态batch加end2end导出\
-`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --end2end --ultralytics --simplify`
+`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --end2end --simplify`
 ###
 yolo11n 的静态导出无end2end\
-`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --simplify --ultralytics`
+`python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --simplify`
 ###
-*除了yolov10其他版本的导出并无差异*
+**除了yolov10其他版本的导出并无差异**
 ###
 yolov10 的动态batch加end2end导出\
-`python export.py --weights weights/yolov10.pt --imgsz 736 1280 --dynamic_batch --ultralytics --simplify --v10 --yaml yolov10s.yaml`
+`python export.py --weights weights/yolov10s.pt --imgsz 736 1280 --dynamic_batch --simplify --v10 --yaml yolov10s.yaml`
 ###
-*由于yolov10训练完保存的pt文件只有weights,所以导出需要yaml文件，如果这个pt文件包含结构图，那么就不需要yaml文件*
+**由于yolov10训练完保存的pt文件只有weights,所以导出需要yaml文件，如果这个pt文件包含结构图，那么就不需要yaml文件**
 ### torch infer
 yolo11n.pt推理\
 `python torch_infer.py --weights weights/yolo11n.pt --source data/1.jpg --img_size 736 1280 --half --save`
@@ -22,7 +22,7 @@ yolo11n.pt推理\
 yolov10s.pt推理\
 `python torch_infer.py --weights weights/yolov10s.pt --source data/1.jpg --img_size 736 1280 --save --v10 --yaml yolov10s.yaml`
 ###
-*yolov10 的推理如果pt文件包含结构图，那么不需要yaml文件，否则需要。另外需要加上--v10，不支持--half*
+**yolov10 的推理如果pt文件包含结构图，那么不需要yaml文件，否则需要。另外需要加上--v10，不支持--half**
 
 ### onnx infer
 目前不支持yolov10 onnx推理，另外end2end这里用的是trt的efficient_nms，所以端到端模型不支持\
