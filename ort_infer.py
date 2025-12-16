@@ -203,7 +203,8 @@ class YOLO_ONNX_Runner:
             result_img, t = self.infer_single_frame(img, args)
             
             output_path = "result.jpg"
-            cv2.imwrite(output_path, result_img)
+            if args.save:
+                cv2.imwrite(output_path, result_img)
             print(f"推理时间: {t:.2f}ms, 结果已保存至: {output_path}")
         else:
             # === 视频/RTSP 模式 ===
@@ -228,7 +229,7 @@ class YOLO_ONNX_Runner:
             out_writer = None
             is_file = isinstance(source, str) and os.path.exists(source)
             
-            if is_file:
+            if is_file and args.save:
                 save_path = "result_video.mp4"
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 out_writer = cv2.VideoWriter(save_path, fourcc, fps, (width, height))
@@ -313,12 +314,6 @@ class YOLO_ONNX_Runner:
         return img
         
             
-        # # 保存或显示
-        # output_path = "result.jpg"
-        # cv2.imwrite(output_path, img)
-        # print(f"结果已保存至: {output_path}")
-        # # cv2.imshow("Result", img)
-        # # cv2.waitKey(0)
 
 
 if __name__ == "__main__":
@@ -329,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--v10", action="store_true", help="Whether to use YOLOv10 model")
     parser.add_argument("--ultralytics", action="store_true", help="Whether to use Ultralytics model include yolov5u,yolov8,yolov10,yolo11,yolov12,yolov13")
     parser.add_argument("--no_show", action="store_true", help="Don't display window (useful for server/headless)")
+    parser.add_argument("--save", action="store_true", help="Save output to file")
     args = parser.parse_args()
     if args.end2end and args.v10:
         raise NotImplementedError("YOLOv10 is already End2End.")

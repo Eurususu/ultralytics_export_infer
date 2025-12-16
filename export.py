@@ -25,6 +25,7 @@ def parse_opt():
     parser.add_argument('--device', default='cpu', help='device to use for export')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version')
     parser.add_argument('--simplify', action='store_true', help='whether to simplify onnx model using onnxsim')
+    parser.add_argument('--seg', action='store_true', help='whether to export segmentation model')
     opt = parser.parse_args()
     return opt
 
@@ -74,7 +75,7 @@ def run_export(opt):
         LOGGER.info("Adding End2End (NMS) layers...")
         # model = End2End(model, ultralytics=opt.ultralytics, max_obj=opt.topk_all, iou_thres=opt.iou_thres, score_thres=opt.conf_thres,
         #                 device=device, ort=False, with_preprocess=False)
-        model = Ultralytics_TRT10_Wrapper(model, opt.topk_all, opt.iou_thres, opt.conf_thres)
+        model = Ultralytics_TRT10_Wrapper(model, opt.topk_all, opt.iou_thres, opt.conf_thres, opt.seg)
         if opt.dynamic_batch:
             current_dynamic_axes = {
                 'images': {0: 'batch'},

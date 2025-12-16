@@ -319,12 +319,13 @@ def apply_trt10_nms(boxes, scores, max_output_boxes, iou_thres, conf_thres):
 
 
 class Ultralytics_TRT10_Wrapper(nn.Module):
-    def __init__(self, model, max_det=100, iou_thres=0.45, conf_thres=0.25):
+    def __init__(self, model, max_det=100, iou_thres=0.45, conf_thres=0.25, seg=False):
         super().__init__()
         self.model = model
         self.max_det = max_det
         self.iou_thres = iou_thres
         self.conf_thres = conf_thres
+        self.seg = seg
 
     def forward(self, x):
         # 1. 处理输入维度
@@ -339,7 +340,10 @@ class Ultralytics_TRT10_Wrapper(nn.Module):
         # 2. 拆分 Box 和 Score
         # 此时 x 是 (Batch, 8400, 84)
         bboxes_cxcywh = x[:, :, :4]  # 前4列是 cx, cy, w, h
-        scores = x[:, :, 4:]       # 后80列是类别概率
+        if self.seg:
+            scores = x[:, :, 4:-32]
+        else:
+            scores = x[:, :, 4:]       # 后80列是类别概率
         # 3. 坐标转换: cx,cy,w,h -> x1,y1,x2,y2
         # EfficientNMS 最好 x1y1x2y2，这样输出也是 x1y1x2y2，方便画图
         bboxes_xyxy = torch.zeros_like(bboxes_cxcywh)
