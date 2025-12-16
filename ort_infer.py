@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 import argparse
+import time
+import os
 
 
 class YOLO_ONNX_Runner:
@@ -148,46 +150,127 @@ class YOLO_ONNX_Runner:
                 
         return np.array(final_boxes), np.array(final_scores), np.array(final_classes)
 
-    
-    def run(self, args):
-        # 读取图片
-        img = cv2.imread(args.image)
-        if img is None:
-            print(f"无法读取图片: {args.image}")
-            return
-
+    def infer_single_frame(self, img, args):
+        """
+        对单帧图片进行推理的核心逻辑封装
+        """
         # 预处理
         img_data, scale, pad = self.preprocess(img)
 
         # 推理
+        start_time = time.time()
         outputs = self.session.run([self.output_name], {self.input_name: img_data})
-       
+        end_time = time.time()
+        inference_time = (end_time - start_time) * 1000
+
         # 后处理
         if args.end2end:
-            if isinstance(outputs, list):
-                outputs = outputs[0]
+            if isinstance(outputs, list): outputs = outputs[0]
             det_boxes = outputs[:,1:5]
             det_scores = outputs[:, 5]
             det_classes = outputs[:, 6]
         elif args.v10:
-            if isinstance(outputs, list):
-                outputs = outputs[0]
+            if isinstance(outputs, list): outputs = outputs[0]
             outputs = outputs[0]
             scores = outputs[:, 4]
             mask = scores > self.conf_thres
             outputs = outputs[mask]
             if len(outputs) == 0:
-                return
+                return img, 0
             det_boxes = outputs[:,:4]
             det_scores = outputs[:, 4]
             det_classes = outputs[:, 5]
         else:   
             det_boxes, det_scores, det_classes = self.postprocess(outputs[0], scale, pad, args.ultralytics)
 
-        
         # 绘制结果
-        print(f"检测到 {len(det_boxes)} 个目标")
-        self.draw_results(img, det_boxes, det_scores, det_classes, scale, pad)
+        img_res = self.draw_results(img, det_boxes, det_scores, det_classes, scale, pad)
+        return img_res, inference_time
+
+    
+    def run(self, args):
+        source = args.source
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.webp']
+        is_image = any(source.lower().endswith(ext) for ext in image_extensions)
+        if is_image:
+            # === 图片模式 ===
+            print(f"正在处理图片: {source}")
+            img = cv2.imread(source)
+            if img is None:
+                print(f"无法读取图片: {source}")
+                return
+
+            result_img, t = self.infer_single_frame(img, args)
+            
+            output_path = "result.jpg"
+            cv2.imwrite(output_path, result_img)
+            print(f"推理时间: {t:.2f}ms, 结果已保存至: {output_path}")
+        else:
+            # === 视频/RTSP 模式 ===
+            print(f"正在尝试打开视频源: {source}")
+            
+            # 如果是数字字符串（如 '0'），转换为整数以打开摄像头
+            if source.isdigit():
+                source = int(source)
+                
+            cap = cv2.VideoCapture(source)
+            if not cap.isOpened():
+                print(f"无法打开视频源: {source}")
+                return
+
+            # 获取视频属性
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps == 0: fps = 25 # 防止 RTSP 获取不到 FPS 导致报错
+
+            # 如果不是实时流，准备写入文件
+            out_writer = None
+            is_file = isinstance(source, str) and os.path.exists(source)
+            
+            if is_file:
+                save_path = "result_video.mp4"
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out_writer = cv2.VideoWriter(save_path, fourcc, fps, (width, height))
+                print(f"视频处理中，结果将保存至: {save_path}")
+            else:
+                print("正在处理实时流 (按 'q' 退出)...")
+
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # 推理
+                result_img, t = self.infer_single_frame(frame, args)
+                
+                # 显示 FPS
+                cv2.putText(result_img, f"FPS: {1000/t:.1f} (Inference: {t:.1f}ms)", (20, 40), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+                # 写入视频文件
+                if out_writer:
+                    out_writer.write(result_img)
+                
+                # 显示画面 (如果是 RTSP 或 摄像头)
+                # 注意：在无头服务器上运行时请注释掉 imshow
+                if not args.no_show:
+                    cv2.imshow("YOLO ONNX Runtime", result_img)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+                frame_count += 1
+                if frame_count % 30 == 0:
+                    print(f"已处理 {frame_count} 帧, 当前推理耗时: {t:.2f}ms")
+
+            cap.release()
+            if out_writer:
+                out_writer.release()
+            cv2.destroyAllWindows()
+            if is_file:
+                print("视频处理完成。")
+
     
     def draw_results(self, img, boxes, scores, classes, scale, pad):
         # COCO 类别 (仅作示例，如果是自定义数据集需修改)
@@ -204,44 +287,48 @@ class YOLO_ONNX_Runner:
         ]
         # coco_names = ['person','car', 'bicycle']
         h, w = img.shape[:2]
-        boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad[0]) / scale
-        boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad[1]) / scale
-        boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, w)
-        boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, h)
-        boxes = np.round(boxes).astype(int)
-        classes = classes.astype(int)
-        for box, score, cls_id in zip(boxes, scores, classes):
-            x1, y1, x2, y2 = box
+        if len(boxes) > 0:
+            boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad[0]) / scale
+            boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad[1]) / scale
+            boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, w)
+            boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, h)
+            boxes = np.round(boxes).astype(int)
+            classes = classes.astype(int)
+            for box, score, cls_id in zip(boxes, scores, classes):
+                x1, y1, x2, y2 = box
+                
+                # 随机颜色
+                rng = np.random.RandomState(cls_id)
+                color = tuple(rng.randint(0, 255, size=3).tolist())
+                color = (int(color[0]), int(color[1]), int(color[2]))
+                
+                # 画框
+                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+                
+                # 写标签
+                label = f"{coco_names[cls_id] if cls_id < len(coco_names) else cls_id}: {score:.2f}"
+                t_size = cv2.getTextSize(label, 0, fontScale=0.5, thickness=1)[0]
+                cv2.rectangle(img, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
+                cv2.putText(img, label, (x1, y1 - 2), 0, 0.5, (0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+        return img
+        
             
-            # 随机颜色
-            rng = np.random.RandomState(cls_id)
-            color = tuple(rng.randint(0, 255, size=3).tolist())
-            color = (int(color[0]), int(color[1]), int(color[2]))
-            
-            # 画框
-            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-            
-            # 写标签
-            label = f"{coco_names[cls_id] if cls_id < len(coco_names) else cls_id}: {score:.2f}"
-            t_size = cv2.getTextSize(label, 0, fontScale=0.5, thickness=1)[0]
-            cv2.rectangle(img, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
-            cv2.putText(img, label, (x1, y1 - 2), 0, 0.5, (0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
-            
-        # 保存或显示
-        output_path = "result.jpg"
-        cv2.imwrite(output_path, img)
-        print(f"结果已保存至: {output_path}")
-        # cv2.imshow("Result", img)
-        # cv2.waitKey(0)
+        # # 保存或显示
+        # output_path = "result.jpg"
+        # cv2.imwrite(output_path, img)
+        # print(f"结果已保存至: {output_path}")
+        # # cv2.imshow("Result", img)
+        # # cv2.waitKey(0)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default='weights/yolo11n.onnx', help="Path to ONNX model")
-    parser.add_argument("--image", type=str, default='data/1.jpg', help="Path to input image")
+    parser.add_argument("--source", type=str, default='data/1.jpg', help="Path to input image, video file, or RTSP stream")
     parser.add_argument("--end2end", action="store_true", help="Whether to use end2end model")
     parser.add_argument("--v10", action="store_true", help="Whether to use YOLOv10 model")
     parser.add_argument("--ultralytics", action="store_true", help="Whether to use Ultralytics model include yolov5u,yolov8,yolov10,yolo11,yolov12,yolov13")
+    parser.add_argument("--no_show", action="store_true", help="Don't display window (useful for server/headless)")
     args = parser.parse_args()
     if args.end2end and args.v10:
         raise NotImplementedError("YOLOv10 is already End2End.")

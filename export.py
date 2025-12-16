@@ -47,7 +47,8 @@ def run_export(opt):
         model.load_state_dict(state_dict, strict=True)
         for m in model.modules():
             if isinstance(m, v10Detect):
-               m.export = True 
+               m.export = True
+               m.max_det = opt.topk_all 
     else:
         model = YOLO(opt.weights).model
         for m in model.modules():
