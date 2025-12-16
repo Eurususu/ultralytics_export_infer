@@ -77,17 +77,14 @@ ultralytics模型 非end2end onnxruntime 推理\
 ###
 2. int4 int8 fp8量化\
 `python onnx_quantization.py --onnx_path xxx --quantize_mode xxx --calibration_data xxx --calib_method xxx --output_path xxx`\
-这里的int4使用awq_clip量化方法，int8 fp8使用 max或者entropy量化方法\
+这里的int4使用awq_clip量化方法，int8 fp8使用 max或者entropy量化方法
 ###
 3. trt生成\
 int4\
-`trtexec --onnx=yolo11s_int4_dy_320.onnx --saveEngine=/home/jia/quant.engine --int4 --int8 --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`
-###
+`trtexec --onnx=yolo11s_int4_dy_320.onnx --saveEngine=/home/jia/quant.engine --int4 --int8 --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`\
 int8\
-`trtexec --onnx=yolo11s_int8_dy_320.onnx --saveEngine=/home/jia/quant.engine --int8 --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`
-###
+`trtexec --onnx=yolo11s_int8_dy_320.onnx --saveEngine=/home/jia/quant.engine --int8 --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`\
 fp8\
-`trtexec --onnx=yolo11s_fp8_dy_320.onnx --saveEngine=quant.engine --fp8 --fp16 --stronglyTyped --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`
-###
+`trtexec --onnx=yolo11s_fp8_dy_320.onnx --saveEngine=quant.engine --fp8 --fp16 --stronglyTyped --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`\
 fp16\
-`trtexec --onnx=yolo11s_dy_320.onnx --saveEngine=quant.engine --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`
+`trtexec --onnx=yolo11s_dy_320.onnx --saveEngine=quant.engine --fp16 --minShapes=images:1x3x320x320 --optShapes=images:1x3x320x320 --maxShapes=images:1x3x320x320`\
