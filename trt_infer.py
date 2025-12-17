@@ -19,6 +19,9 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--video",  help="video path or camera index ")
     parser.add_argument("--end2end", default=False, action="store_true",
                         help="use end2end engine")
+    parser.add_argument("--efficient_end2end", default=False, action="store_true", 
+                        help='use efficient_end2end engine')
+    parser.add_argument("--conf", type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--ultralytics', default=False, action="store_true",
                         help='whether the model is from ultralytics, only for not end2end model')
     parser.add_argument('--v10', action="store_true", help='whether the model is yolov10')
@@ -32,8 +35,8 @@ if __name__ == '__main__':
     img_path = args.image
     video = args.video
     if img_path:
-      origin_img = pred.inference(img_path, conf=0.25, end2end=args.end2end,ultralytics=args.ultralytics, v10=args.v10)
+      origin_img = pred.inference(img_path, args)
 
       cv2.imwrite("%s" %args.output , origin_img)
     if video:
-      pred.detect_video(video, conf=0.1, end2end=args.end2end, ultralytics=args.ultralytics) # set 0 use a webcam
+      pred.detect_video(video, args) # set 0 use a webcam

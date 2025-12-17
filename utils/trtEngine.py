@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import common
 from cuda import cudart
+import time
 
 class BaseEngine(object):
-    def __init__(self, engine_path):
+    def __init__(self, engine_path,max_batch_size=1, max_det=300):
         self.mean = None
         self.std = None
         self.n_classes = 80
@@ -19,88 +20,126 @@ class BaseEngine(object):
          'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
          'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
          'hair drier', 'toothbrush' ]
-
+        self.max_batch_size = max_batch_size
+        self.max_det = max_det
+        # 1. 初始化 Logger
         logger = trt.Logger(trt.Logger.WARNING)
         logger.min_severity = trt.Logger.Severity.ERROR
-        runtime = trt.Runtime(logger)
         trt.init_libnvinfer_plugins(logger,'') # initialize TensorRT plugins
+        # 2. 加载 engine
         with open(engine_path, "rb") as f:
             serialized_engine = f.read()
+
+        runtime = trt.Runtime(logger)
         self.engine = runtime.deserialize_cuda_engine(serialized_engine)
-        self.imgsz = self.engine.get_tensor_shape(self.engine.get_tensor_name(0))[2:]  # get the read shape of model, in case user input it wrong
         self.context = self.engine.create_execution_context()
-        # Setup I/O bindings
+        # 3. 获取输入图像尺寸
+        input_tensor_name = self.engine.get_tensor_name(0)
+        self.imgsz = self.engine.get_tensor_shape(input_tensor_name)[2:]
+        # 4. 初始化cuda stream
+        _, self.stream = cudart.cudaStreamCreate()
+        # 5. 分配显存
         self.inputs = []
         self.outputs = []
         self.allocations = []
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
             dtype = self.engine.get_tensor_dtype(name)
-            shape = self.engine.get_tensor_shape(name)
+            raw_shape = self.engine.get_tensor_shape(name)
+            # 处理动态 Shape: 如果是 -1，先给一个默认值用于计算显存，通常需要根据实际情况调整
+            # 这里简单处理：如果有动态 batch，暂时按 1 或者最大值处理
             is_input = False
+            shape = list(raw_shape)
             if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
                 is_input = True
-            if is_input:
-                self.batch_size = shape[0]
+                if shape[0] == -1:
+                    shape[0] = self.max_batch_size
+            else:
+                if len(shape) == 2 and shape[0] == -1:
+                     shape[0] = self.max_det
+            shape = tuple(shape)
+            # 计算需要分配的字节数
+            # 注意：如果 Shape 包含 -1，这里需要使用 Profile 的最大尺寸，这里简化处理
             size = np.dtype(trt.nptype(dtype)).itemsize
             for s in shape:
-                size *= s
-            allocation = common.cuda_call(cudart.cudaMalloc(size))
+                size *= s if s > 0 else 1 # 简单的安全措施
+            # if is_input:
+            #     self.batch_size = shape[0]
+
+            # 分配GPU显存
+            err, ptr = cudart.cudaMalloc(size)
+            if err != cudart.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"CUDA Malloc failed for tensor {name}")
             binding = {
                 'index': i,
                 'name': name,
                 'dtype': np.dtype(trt.nptype(dtype)),
                 'shape': list(shape),
-                'allocation': allocation,
+                'ptr': ptr,
                 'size': size
             }
-            self.allocations.append(allocation)
-            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+            # 将GPU指针绑定到Context
+            self.context.set_tensor_address(name, ptr)
+            if is_input:
                 self.inputs.append(binding)
             else:
                 self.outputs.append(binding)
+            self.allocations.append(ptr)
+    
 
-    def output_spec(self):
-        """
-        Get the specs for the output tensors of the network. Useful to prepare memory allocations.
-        :return: A list with two items per element, the shape and (numpy) datatype of each output tensor.
-        """
-        specs = []
-        for o in self.outputs:
-            specs.append((o['shape'], o['dtype']))
-        return specs
+    def __del__(self):
+        # 析构函数：释放显存和 Stream
+        if hasattr(self, 'allocations'):
+            for ptr in self.allocations:
+                cudart.cudaFree(ptr)
+        if hasattr(self, 'stream'):
+            cudart.cudaStreamDestroy(self.stream)
 
     def infer(self, img):
-        """
-        Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
-        the ImageBatcher class. Memory copying to and from the GPU device will be performed here.
-        :param batch: A numpy array holding the image batch.
-        :param scales: The image resize scales for each image in this batch. Default: No scale postprocessing applied.
-        :return: A nested list for each image in the batch and each detection in the list.
-        """
-
-        # Prepare the output data.
+        # 1. 准备 Output Host Buffer
         outputs = []
-        for shape, dtype in self.output_spec():
-            outputs.append(np.zeros(shape, dtype))
-
-        # Process I/O and execute the network.
-        common.memcpy_host_to_device(self.inputs[0]['allocation'], np.ascontiguousarray(img))
-
-        self.context.execute_v2(self.allocations)
-        for o in range(len(outputs)):
-            common.memcpy_device_to_host(outputs[o], self.outputs[o]['allocation'])
+        for out in self.outputs:
+            outputs.append(np.zeros(out['shape'], out['dtype']))
+        # 2. 设置输入 Shape (对于 V3 API，如果有动态 Shape 必须设置)
+        # 假设只有一个输入
+        input_binding = self.inputs[0]
+        input_name = input_binding['name']
+        # 检查输入数据类型并确保持续内存
+        img = np.ascontiguousarray(img)
+        # 如果 Engine 是动态 Shape，这里必须设置
+        self.context.set_input_shape(input_name, img.shape)
+        # 3. Host -> Device (异步 Copy)
+        # input_binding['ptr'] 是 GPU 地址 (int)
+        cudart.cudaMemcpyAsync(
+            input_binding['ptr'], 
+            img.ctypes.data, 
+            input_binding['size'], 
+            cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, 
+            self.stream
+        )
+        # 4. 执行推理 (V3 API)
+        self.context.execute_async_v3(stream_handle=self.stream)
+        # 5. Device -> Host (异步 Copy)
+        for i, out in enumerate(self.outputs):
+            cudart.cudaMemcpyAsync(
+                outputs[i].ctypes.data, 
+                out['ptr'], 
+                out['size'], 
+                cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, 
+                self.stream
+            )
+        # 6. 同步 Stream (等待推理和拷贝完成)
+        cudart.cudaStreamSynchronize(self.stream)
         return outputs
 
-    def detect_video(self, video_path, conf=0.5, end2end=False, ultralytics=False):
+    def detect_video(self, video_path, args):
         cap = cv2.VideoCapture(video_path)
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        fps = int(round(cap.get(cv2.CAP_PROP_FPS)))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps_vid = int(round(cap.get(cv2.CAP_PROP_FPS)))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        out = cv2.VideoWriter('results.avi',fourcc,fps,(width,height))
-        fps = 0
-        import time
+        out = cv2.VideoWriter('results.mp4',fourcc,fps_vid,(width,height))
+        curr_fps = 0
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -109,10 +148,33 @@ class BaseEngine(object):
             img, ratio, dwdh = letterbox(frame, self.imgsz)
             t1 = time.time()
             data = self.infer(img)
-            fps = (fps + (1. / (time.time() - t1))) / 2
-            frame = cv2.putText(frame, "FPS:%d " %fps, (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
+            t2 = time.time()
+            curr_fps = (curr_fps + (1. / (t2 - t1))) / 2
+            frame = cv2.putText(frame, "FPS:%d " %curr_fps, (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
                                 (0, 0, 255), 2)
-            if end2end:
+            dets = None
+            if args.end2end:
+                if isinstance(data, list):
+                    data = data[0]
+                mask = data[:, 5] > args.conf
+                valid_predictions = data[mask]
+                if valid_predictions.shape[0] == 0:
+                    print("没有检测到物体")
+                else:
+                    final_boxes = valid_predictions[:, 1:5]
+                    final_scores = valid_predictions[:, 5]
+                    final_cls_inds = valid_predictions[:, 6].astype(int)
+                    if dwdh is not None:
+                        dw, dh = dwdh
+                    final_boxes[:, 0] -= dw
+                    final_boxes[:, 1] -= dh
+                    final_boxes[:, 2] -= dw
+                    final_boxes[:, 3] -= dh
+                    final_boxes /= ratio
+                    final_scores = np.reshape(final_scores, (-1, 1))
+                    final_cls_inds = np.reshape(final_cls_inds, (-1, 1))
+                    dets = np.concatenate([np.array(final_boxes), np.array(final_scores), np.array(final_cls_inds)], axis=-1)
+            elif args.efficient_end2end:
                 num, final_boxes, final_scores, final_cls_inds  = data
                 # final_boxes, final_scores, final_cls_inds  = data
                 final_boxes = np.reshape(final_boxes, (-1, 4))
@@ -130,34 +192,58 @@ class BaseEngine(object):
                 valid_count = int(num[0])
                 dets = np.concatenate([np.array(final_boxes)[:valid_count], np.array(final_scores)[:valid_count], np.array(final_cls_inds)[:valid_count]], axis=-1)
             else:
-                if ultralytics:
+                if args.ultralytics:
                     if isinstance(data, list):
                         data = data[0]
-                    predictions = data[0]
+                    predictions = data
+                    # Ultralytics output通常是 (Batch, 4+cls, Num_Anchors) -> 需要 transpose
+                    if predictions.ndim == 3: 
+                        predictions = predictions[0]
                     predictions = predictions.transpose()
                 else:
                     predictions = np.reshape(data, (1, -1, int(5+self.n_classes)))[0]
-                dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=ultralytics)
+                dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=args.ultralytics)
 
-            if dets is not None:
+            if dets is not None and len(dets) > 0:
                 final_boxes, final_scores, final_cls_inds = dets[:,
                                                                 :4], dets[:, 4], dets[:, 5]
                 frame = vis(frame, final_boxes, final_scores, final_cls_inds,
-                                conf=conf, class_names=self.class_names)
+                                conf=args.conf, class_names=self.class_names)
             cv2.imshow('frame', frame)
             out.write(frame)
-            if cv2.waitKey(25) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         out.release()
         cap.release()
         cv2.destroyAllWindows()
 
-    def inference(self, img_path, conf=0.5, end2end=False, ultralytics=False, v10=False):
+    def inference(self, img_path, args):
         origin_img = cv2.imread(img_path)
         # img, ratio = preproc(origin_img, self.imgsz, self.mean, self.std)
         img, ratio, dwdh = letterbox(origin_img, self.imgsz)
         data = self.infer(img)
-        if end2end:
+        if args.end2end:
+            if isinstance(data, list):
+                data = data[0]
+            mask = data[:, 5] > args.conf
+            valid_predictions = data[mask]
+            if valid_predictions.shape[0] == 0:
+                print("没有检测到物体")
+            else:
+                final_boxes = valid_predictions[:, 1:5]
+                final_scores = valid_predictions[:, 5]
+                final_cls_inds = valid_predictions[:, 6].astype(int)
+                if dwdh is not None:
+                    dw, dh = dwdh
+                final_boxes[:, 0] -= dw
+                final_boxes[:, 1] -= dh
+                final_boxes[:, 2] -= dw
+                final_boxes[:, 3] -= dh
+                final_boxes /= ratio
+                final_scores = np.reshape(final_scores, (-1, 1))
+                final_cls_inds = np.reshape(final_cls_inds, (-1, 1))
+                dets = np.concatenate([np.array(final_boxes), np.array(final_scores), np.array(final_cls_inds)], axis=-1)
+        elif args.efficient_end2end:
             num, final_boxes, final_scores, final_cls_inds  = data
             # final_boxes, final_scores, final_cls_inds  = data
             final_boxes = np.reshape(final_boxes, (-1, 4))
@@ -174,10 +260,10 @@ class BaseEngine(object):
             # 截取有效框
             valid_count = int(num[0])
             dets = np.concatenate([np.array(final_boxes)[:valid_count], np.array(final_scores)[:valid_count], np.array(final_cls_inds)[:valid_count]], axis=-1)
-        elif v10:
+        elif args.v10:
             if isinstance(data, list):
                 data = data[0]
-            data = data[0]
+            pred = data[0] if data.ndim == 3 else data
             if dwdh is not None:
                 dw, dh = dwdh 
                 data[:, 0] -= dw
@@ -187,20 +273,22 @@ class BaseEngine(object):
             data[:,:4] /= ratio
             dets = data
         else:
-            if ultralytics:
+            if args.ultralytics:
                 if isinstance(data, list):
                     data = data[0]
-                predictions = data[0]
+                predictions = data
+                if predictions.ndim == 3:
+                     predictions = predictions[0]
                 predictions = predictions.transpose()
             else:
                 predictions = np.reshape(data, (1, -1, int(5+self.n_classes)))[0]
-            dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=ultralytics)
+            dets = self.postprocess(predictions,ratio,dwdh=dwdh,ultralytics=args.ultralytics)
 
-        if dets is not None:
+        if dets is not None and len(dets) > 0:
             final_boxes, final_scores, final_cls_inds = dets[:,
                                                              :4], dets[:, 4], dets[:, 5]
             origin_img = vis(origin_img, final_boxes, final_scores, final_cls_inds,
-                             conf=conf, class_names=self.class_names)
+                             conf=args.conf, class_names=self.class_names)
         return origin_img
 
     @staticmethod
@@ -327,12 +415,12 @@ def  letterbox(im,
     if isinstance(new_shape, int):
         new_shape = (new_shape, new_shape)
     # new_shape: [width, height]
-
+    target_h, target_w = new_shape
     # Scale ratio (new / old)
-    r = min(new_shape[0] / shape[1], new_shape[1] / shape[0])
+    r = min(target_w / shape[1], target_h / shape[0])
     # Compute padding [width, height]
-    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-    dw, dh = new_shape[0] - new_unpad[0], new_shape[1] - new_unpad[
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r)) #(w,h)
+    dw, dh = target_w - new_unpad[0], target_h - new_unpad[
         1]  # wh padding
 
     dw /= 2  # divide padding into 2 sides
@@ -351,6 +439,7 @@ def  letterbox(im,
                             value=color)  # add border
     im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
     im = im.transpose(swap)
+    im = im[np.newaxis,:]
     im = np.ascontiguousarray(im, dtype=np.float32) / 255.
     return im, r, (dw, dh)
 

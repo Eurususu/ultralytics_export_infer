@@ -23,7 +23,7 @@ def parse_opt():
     parser.add_argument('--end2end', action='store_true', help='whether to export end2end model')
     parser.add_argument('--imgsz', type=int, nargs='+', default=[640,640], help='height and width of the input image')
     parser.add_argument('--device', default='cpu', help='device to use for export')
-    parser.add_argument('--opset', type=int, default=13, help='ONNX opset version')
+    parser.add_argument('--opset', type=int, default=19, help='ONNX opset version')
     parser.add_argument('--simplify', action='store_true', help='whether to simplify onnx model using onnxsim')
     parser.add_argument('--seg', action='store_true', help='whether to export segmentation model')
     opt = parser.parse_args()
@@ -100,31 +100,36 @@ def run_export(opt):
             # Checks
             onnx_model = onnx.load(f)  # load onnx model
             onnx.checker.check_model(onnx_model)  # check onnx model
-            LOGGER.info("Optimizing graph with onnx-graphsurgeon...")
-            graph = gs.import_onnx(onnx_model)
-            graph.cleanup().toposort()  #从图形中删除未使用的节点和张量，并对图形进行拓扑排序
-            # Shape Estimation
-            estimated_graph = None
-            try:
-                # 即使是大模型，使用 export_onnx 生成 proto 也可能比较安全，但 infer_shapes 偶尔会失败
-                estimated_graph = onnx.shape_inference.infer_shapes(gs.export_onnx(graph))
-            except Exception as e:
-                LOGGER.warning(f"Shape inference failed, saving without updated shapes: {e}")
-                estimated_graph = gs.export_onnx(graph)
-            
+
             if opt.simplify:
                 LOGGER.info("Simplifying with onnx-simplifier...")
                 try:
                     import onnxsim
-                    model_simp, check = onnxsim.simplify(estimated_graph)
+                    model_simp, check = onnxsim.simplify(onnx_model)
                     if check:
-                        estimated_graph = model_simp
+                        onnx_model = model_simp
                         LOGGER.info("Simplification successful.")
                     else:
                         LOGGER.warning("Simplification check failed. Saving unsimplified model.")
                 except Exception as e:
                     LOGGER.warning(f"Simplification process error: {e}")
-            onnx.save(estimated_graph, export_file)
+
+            LOGGER.info("Optimizing graph with onnx-graphsurgeon...")
+            graph = gs.import_onnx(onnx_model)
+            graph.cleanup().toposort()  #从图形中删除未使用的节点和张量，并对图形进行拓扑排序
+            # final_model = gs.export_onnx(graph)
+
+            # Shape Estimation
+            final_model = None
+            try:
+                # 即使是大模型，使用 export_onnx 生成 proto 也可能比较安全，但 infer_shapes 偶尔会失败
+                final_model = onnx.shape_inference.infer_shapes(gs.export_onnx(graph))
+            except Exception as e:
+                LOGGER.warning(f"Shape inference failed, saving without updated shapes: {e}")
+                final_model = gs.export_onnx(graph)
+            
+            
+            onnx.save(final_model, export_file)
             LOGGER.info(f'ONNX export success: {export_file}')
     except Exception as e:
         LOGGER.info(f'ONNX export failure: {e}')

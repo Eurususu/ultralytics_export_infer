@@ -77,7 +77,7 @@ ultralytics模型 非end2end onnxruntime 推理\
 ###
 2. int4 int8 fp8量化\
 `python onnx_quantization.py --onnx_path xxx --quantize_mode xxx --calibration_data xxx --calib_method xxx --output_path xxx`\
-这里的int4使用awq_clip量化方法，int8 fp8使用 max或者entropy量化方法
+这里的int4使用awq_clip量化方法，int8 fp8使用 max或者entropy量化方法,这里的输入onnx模型需要simplify的，opset 19
 ###
 3. trt生成\
 int4\
