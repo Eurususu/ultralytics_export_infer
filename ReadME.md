@@ -27,6 +27,18 @@ yolov10s.pt推理\
 ### onnx infer
 目前不支持yolov10 onnx推理，另外end2end这里用的是trt的efficient_nms，所以端到端模型不支持\
 `python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg`
+###
+除yolov10外 onnxruntime end2end模型推理(INMSLayer)\
+`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --end2end`
+###
+yolov10 onnxruntime 模型推理\
+`python ort_infer.py --model weights/yolov10s.onnx --image data/1.jpg --v10`
+###
+ultralytics模型 非end2end onnxruntime 推理\
+`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --ultralytics`
+###
+其他非ultralytics模型 非end2end onnxruntime 推理\
+`python ort_infer.py --model weights/yolov7-tiny.onnx --image data/1.jpg`
 
 ### trt infer
 yolo11n.engine end2end模型推理\
@@ -57,19 +69,18 @@ yolov10s.engine 模型推理\
 多卡yolov10 训练 如果训练的pt文件包含结构图，则和上面yolo11n训练一样，不需要yaml文件，否则需要\
 `torchrun --nproc_per_node 2 --master_port 10001 train.py --data data/coco128.yaml --weights weights/yolov10s.pt --epochs 300 --batch 128 --device 0,1 --name yolov10_coco128 --plots --v10 --yaml yolov10s.yaml`
 
+### val
+yolo11n 验证\
+`python val.py --weights weights/yolo11n.pt --data data/coco.yaml --plot`
+###
+yolov10s 验证 如果训练的pt文件包含结构图，则和上面yolo11n验证一样，不需要yaml文件，否则需要\
+`python val.py --weights weights/yolov10s.pt --data data/coco.yaml --plot --v10 --yaml yolov10s.yaml`
+### trt val
+1. 生成json文件，如果没有的话\
+`python utils/yolo2coco.py ----img_dir xxx --label_dir xxx --output xxx --classes xxx`
+2. trt val\
+`python ./trt_val.py --engine /home/jia/3classes_int8_entropy.engine --img_dir /home/jia/project/test_val/images/val --coco_json 3classes.json --end2end --conf 0.001`
 
-## tag v2.0
-除yolov10外 onnxruntime end2end模型推理(INMSLayer)\
-`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --end2end`
-###
-yolov10 onnxruntime 模型推理\
-`python ort_infer.py --model weights/yolov10s.onnx --image data/1.jpg --v10`
-###
-ultralytics模型 非end2end onnxruntime 推理\
-`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --ultralytics`
-###
-其他非ultralytics模型 非end2end onnxruntime 推理\
-`python ort_infer.py --model weights/yolov7-tiny.onnx --image data/1.jpg`
 
 ## how to quant
 1. 生成npy类型的校准数据集\
