@@ -15,6 +15,9 @@ yolov10 的动态batch加end2end导出\
 `python export.py --weights weights/yolov10s.pt --imgsz 736 1280 --dynamic_batch --simplify --v10 --yaml yolov10s.yaml`
 ###
 **由于yolov10训练完保存的pt文件只有weights,所以导出需要yaml文件，如果这个pt文件包含结构图，那么就不需要yaml文件**
+###
+yolo seg模型导出\
+`python export.py --weights weights/yolo11s-seg.pt --imgsz 736 1280 --dynamic_batch --end2end --simplify --seg`
 ### torch infer
 yolo11n.pt推理\
 `python torch_infer.py --weights weights/yolo11n.pt --source data/1.jpg --img_size 736 1280 --half --save`
@@ -25,9 +28,6 @@ yolov10s.pt推理\
 **yolov10 的推理如果pt文件包含结构图，那么不需要yaml文件，否则需要。另外需要加上--v10，不支持--half**
 
 ### onnx infer
-目前不支持yolov10 onnx推理，另外end2end这里用的是trt的efficient_nms，所以端到端模型不支持\
-`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg`
-###
 除yolov10外 onnxruntime end2end模型推理(INMSLayer)\
 `python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --end2end`
 ###
@@ -41,6 +41,9 @@ ultralytics模型 非end2end onnxruntime 推理\
 `python ort_infer.py --model weights/yolov7-tiny.onnx --image data/1.jpg`
 
 ### trt infer
+yolo11n.engine efficient_nms end2end模型推理\
+`python trt_infer.py --engine /home/jia/yolo11n.engine --image data/1.jpg --output result.jpg --efficient_end2end`
+###
 yolo11n.engine end2end模型推理\
 `python trt_infer.py --engine /home/jia/yolo11n.engine --image data/1.jpg --output result.jpg --end2end`
 ###
@@ -49,6 +52,9 @@ yolo11n.engine 非end2end模型推理\
 ###
 yolov10s.engine 模型推理\
 `python trt_infer.py --engine /home/jia/yolov10s.engine --image data/1.jpg --output result.jpg --v10`
+###
+其他非ultralytics efficient_nms end2end模型推理\
+`python trt_infer.py --engine /home/jia/yolov7-tiny.engine --image data/1.jpg --output result.jpg --efficient_end2end`
 ###
 其他非ultralytics end2end模型推理\
 `python trt_infer.py --engine /home/jia/yolov7-tiny.engine --image data/1.jpg --output result.jpg --end2end`
