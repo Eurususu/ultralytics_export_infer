@@ -2,7 +2,6 @@ import tensorrt as trt
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from utils import common
 from cuda import cudart
 import time
 
@@ -407,7 +406,7 @@ def preproc(image, input_size, mean, std, swap=(2, 0, 1)):
     padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
     return padded_img, r
 
-def  letterbox(im,
+def letterbox(im,
               new_shape = (640, 640),
               color = (114, 114, 114),
               swap=(2, 0, 1)):

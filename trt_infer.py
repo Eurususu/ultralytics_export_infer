@@ -1,9 +1,5 @@
-from utils.trtEngine import preproc, vis
 from utils.trtEngine import BaseEngine
-import numpy as np
 import cv2
-import time
-import os
 import argparse
 
 class Predictor(BaseEngine):

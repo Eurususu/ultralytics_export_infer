@@ -13,9 +13,10 @@
             "console": "integratedTerminal",
 
             //  "args": ["--model", "/home/jia/yolov5_end2end_deploy/weights/yolov5s.onnx", "--image", "/home/jia/TensorRT-For-YOLO-Series/src/1.jpg"]
-            "args":["--engine", "/home/jia/yolo11s_fp16.engine", "--image", "data/1.jpg", "--output", "result.jpg", "--end2end"]
+            // "args":["--engine", "/home/jia/yolo11s_fp16.engine", "--image", "data/1.jpg", "--output", "result.jpg", "--end2end"]
             // "args": ["--save"]
             // "args": ["--weights", "weights/yolo11s-seg.pt", "--dynamic_batch", "--end2end", "--simplify", "--seg"]
+            "args":["--engine", "/home/jia/3classes_fp16.engine", "--video", "rtsp://192.168.12.203:554/stream_0", "--end2end", "--conf", "0.45"]
         }
     ]
 }

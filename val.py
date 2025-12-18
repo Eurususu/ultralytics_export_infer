@@ -2,33 +2,33 @@ from ultralytics import YOLO
 from ultralytics import YOLOv10
 import argparse
 import torch
-import torch.nn as nn
 
 def parse_args():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
     args_parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file')
-    args_parser.add_argument('--source', type=str, default='data/1.jpg', help='image/video path')
-    args_parser.add_argument('--batch', type=int, default=1, help='batch size')
-    args_parser.add_argument('--conf', type=float, default=0.25, help='confidence threshold')
-    args_parser.add_argument('--iou', type=float, default=0.45, help='NMS IoU threshold')
+    args_parser.add_argument('--data', type=str, default='', help='image/video path')
+    args_parser.add_argument('--conf', type=float, default=0.001, help='confidence threshold')
+    args_parser.add_argument('--iou', type=float, default=0.7, help='NMS IoU threshold')
     args_parser.add_argument('--max_det', type=int, default=300, help='maximum detections per image')
-    args_parser.add_argument('--imgsz', type=int, nargs='+', default=[640,640], help='height and width of the input image')
+    args_parser.add_argument('--save_json', action='store_true', help='save result json')
+    args_parser.add_argument('--batch', type=int, default=16, help='batch size')
+    args_parser.add_argument('--imgsz', type=int, default=640, help='height and width of the input image')
     args_parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     args_parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     args_parser.add_argument('--device', default='', help='device to run inference on')
-    args_parser.add_argument('--save', action='store_true', help='save result image/video')
-    args_parser.add_argument('--show_labels', action='store_true', help='show label on result image/video')
-    args_parser.add_argument('--show_conf', action='store_true', help='show confidence score on result image/video')
-    args_parser.add_argument('--line_width', type=int, default=1, help='bounding box line width')
+    args_parser.add_argument('--save_txt', action='store_true', help='save label on result image/video')
+    args_parser.add_argument('--save_conf', action='store_true', help='save confidence score on result image/video')
     args_parser.add_argument('--project', default='runs/detect', help='save results to project/name')
     args_parser.add_argument('--name', default='exp', help='save results to project/name')
+    args_parser.add_argument('--split', type=str, default='val', help='val or test or train')
+    args_parser.add_argument('--plot', action='store_true', help='plot result curves')
     args_parser.add_argument('--v10', action='store_true', help='use yolov10 model for inference')
     args = args_parser.parse_args()
     return args
 
 
-def run_infer(args):
+def run_val(args):
     if args.v10:
         assert args.yaml, '--yaml must be specified for yolov10 inference'
         model = YOLOv10(args.yaml)
@@ -48,23 +48,25 @@ def run_infer(args):
         model.to('cuda').half()
     else:
         model.to('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    results = model.predict(
-        source=args.source,
+    metrics = model.val(
+        data=args.data,
+        batch=args.batch,
+        imgsz=args.imgsz,
+        classes=args.classes,
         conf=args.conf,
         iou=args.iou,
-        classes=args.classes,
-        imgsz=args.imgsz,
-        save=args.save,
+        save_json=args.save_json,
         project=args.project,
         name=args.name,
-        line_width=args.line_width,
-        show_labels=args.show_labels,
-        show_conf=args.show_conf
+        split=args.split,
+        save_txt=args.save_txt,
+        save_conf=args.save_conf,
     )
-    return results
+    print(f'mAP50-90 is:{metrics.box.map}')  # mAP50-95
+    print(f'mAP50 is:{metrics.box.map50}')  # mAP50
+    print(f'mAP75 is:{metrics.box.map75}')  # mAP75
 
 
 if __name__ == '__main__':
     args = parse_args()
-    results = run_infer(args)
+    results = run_val(args)
