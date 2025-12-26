@@ -1,4 +1,14 @@
 ## tag v1.0
+### install
+conda 环境如下，需要ubuntu 22.04及以上系统\
+链接: https://pan.baidu.com/s/1KONpRq0NqvUrqUhGCdq3ug 提取码: ntxt \
+`git clone https://github.com/Eurususu/ultralytics_export_infer.git`
+`mkdir -p /home/user/anaconda3/envs/xxx`
+`tar -xzf my_env_packed.tar.gz -C /home/user/anaconda3/envs/xxx`
+`source /你的解压路径/bin/activate`
+`conda-unpack`
+`pip install -e .`
+
 ### export
 yolo11n 的动态batch加end2end导出\
 `python export.py --weights weights/yolo11n.pt --imgsz 736 1280 --dynamic_batch --end2end --simplify`
