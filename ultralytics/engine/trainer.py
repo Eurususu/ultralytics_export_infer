@@ -470,6 +470,8 @@ class BaseTrainer:
             self.final_eval()
             if self.args.plots:
                 self.plot_metrics()
+            if dist.is_initialized():
+                dist.destroy_process_group()
             self.run_callbacks("on_train_end")
         self._clear_memory()
         self.run_callbacks("teardown")
