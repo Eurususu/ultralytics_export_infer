@@ -6,7 +6,7 @@ import torch.nn as nn
 
 def parse_args():
     args_parser = argparse.ArgumentParser()
-    args_parser.add_argument('--weights', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
+    args_parser.add_argument('--model', type=str, default='runs/train/exp/weights/best.pt', help='weights path')
     args_parser.add_argument('--yaml', type=str, default='yolov10s.yaml', help='model yaml file')
     args_parser.add_argument('--source', type=str, default='data/1.jpg', help='image/video path')
     args_parser.add_argument('--batch', type=int, default=1, help='batch size')
@@ -32,7 +32,7 @@ def run_infer(args):
     if args.v10:
         assert args.yaml, '--yaml must be specified for yolov10 inference'
         model = YOLOv10(args.yaml)
-        ckpt = torch.load(args.weights, map_location='cpu')
+        ckpt = torch.load(args.model, map_location='cpu')
         if isinstance(ckpt, dict) and 'model' in ckpt:
             state_dict = ckpt['model']
         else:
@@ -42,7 +42,7 @@ def run_infer(args):
         model.model.load_state_dict(state_dict, strict=True)
         model.model.eval()
     else:
-        model = YOLO(args.weights)
+        model = YOLO(args.model)
         model.fuse()
     if args.half:
         model.to('cuda').half()

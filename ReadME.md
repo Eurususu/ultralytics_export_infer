@@ -2,11 +2,11 @@
 ### install
 conda 环境如下，需要ubuntu 22.04及以上系统\
 链接: https://pan.baidu.com/s/1KONpRq0NqvUrqUhGCdq3ug 提取码: ntxt \
-`git clone https://github.com/Eurususu/ultralytics_export_infer.git`
-`mkdir -p /home/user/anaconda3/envs/xxx`
-`tar -xzf my_env_packed.tar.gz -C /home/user/anaconda3/envs/xxx`
-`source /你的解压路径/bin/activate`
-`conda-unpack`
+`git clone https://github.com/Eurususu/ultralytics_export_infer.git`\
+`mkdir -p /home/user/anaconda3/envs/xxx`\
+`tar -xzf my_env_packed.tar.gz -C /home/user/anaconda3/envs/xxx`\
+`source /你的解压路径/bin/activate`\
+`conda-unpack`\
 `pip install -e .`
 
 ### export
@@ -30,25 +30,25 @@ yolo seg模型导出\
 `python export.py --weights weights/yolo11s-seg.pt --imgsz 736 1280 --dynamic_batch --end2end --simplify --seg`
 ### torch infer
 yolo11n.pt推理\
-`python torch_infer.py --weights weights/yolo11n.pt --source data/1.jpg --img_size 736 1280 --half --save`
+`python torch_infer.py --model weights/yolo11n.pt --source data/1.jpg --img_size 736 1280 --half --save`
 ###
 yolov10s.pt推理\
-`python torch_infer.py --weights weights/yolov10s.pt --source data/1.jpg --img_size 736 1280 --save --v10 --yaml yolov10s.yaml`
+`python torch_infer.py --model weights/yolov10s.pt --source data/1.jpg --img_size 736 1280 --save --v10 --yaml yolov10s.yaml`
 ###
 **yolov10 的推理如果pt文件包含结构图，那么不需要yaml文件，否则需要。另外需要加上--v10，不支持--half**
 
 ### onnx infer
 除yolov10外 onnxruntime end2end模型推理(INMSLayer)\
-`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --end2end`
+`python ort_infer.py --model weights/yolo11n.onnx --source data/1.jpg --end2end --save`
 ###
 yolov10 onnxruntime 模型推理\
-`python ort_infer.py --model weights/yolov10s.onnx --image data/1.jpg --v10`
+`python ort_infer.py --model weights/yolov10s.onnx --source data/1.jpg --v10 --save`
 ###
 ultralytics模型 非end2end onnxruntime 推理\
-`python ort_infer.py --model weights/yolo11n.onnx --image data/1.jpg --ultralytics`
+`python ort_infer.py --model weights/yolo11n.onnx --source data/1.jpg --ultralytics --save`
 ###
 其他非ultralytics模型 非end2end onnxruntime 推理\
-`python ort_infer.py --model weights/yolov7-tiny.onnx --image data/1.jpg`
+`python ort_infer.py --model weights/yolov7-tiny.onnx --source data/1.jpg --save`
 
 ### trt infer
 yolo11n.engine efficient_nms end2end模型推理\
@@ -77,7 +77,7 @@ yolov10s.engine 模型推理\
 `python train.py --data data/coco128.yaml --model weights/yolo11n.pt --epochs 300 --batch 64 --device 0 --name "yolo11n_coco128" --plots`
 
 单卡yolov10 训练 如果训练的pt文件包含结构图，则和上面yolo11n训练一样，不需要yaml文件，否则需要\
-`python train.py --data data/coco128.yaml --weights weights/yolov10s.pt --epochs 300 --batch 64 --device 0 --name yolov10_coco128 --plots --v10 --yaml yolov10s.yaml`
+`python train.py --data data/coco128.yaml --model weights/yolov10s.pt --epochs 300 --batch 64 --device 0 --name yolov10_coco128 --plots --v10 --yaml yolov10s.yaml`
 
 多卡yolo11n 训练\
 `torchrun --nproc_per_node 2 --master_port 10001 train.py --data data/coco128.yaml --model "weights/yolo11n.pt" --epochs 300 --batch 128 --device 0,1 --name yolo11n_coco128 --plots`
@@ -87,10 +87,10 @@ yolov10s.engine 模型推理\
 
 ### val
 yolo11n 验证\
-`python val.py --weights weights/yolo11n.pt --data data/coco.yaml --plot`
+`python val.py --model weights/yolo11n.pt --data data/coco.yaml --plot`
 ###
 yolov10s 验证 如果训练的pt文件包含结构图，则和上面yolo11n验证一样，不需要yaml文件，否则需要\
-`python val.py --weights weights/yolov10s.pt --data data/coco.yaml --plot --v10 --yaml yolov10s.yaml`
+`python val.py --model weights/yolov10s.pt --data data/coco.yaml --plot --v10 --yaml yolov10s.yaml`
 ### trt val
 1. 生成json文件，如果没有的话\
 `python utils/yolo2coco.py ----img_dir xxx --label_dir xxx --output xxx --classes xxx`
